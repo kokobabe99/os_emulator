@@ -33,6 +33,9 @@ func NewMemoryManager(total, frame int) *MemoryManager {
 }
 
 func (m *MemoryManager) Allocate(p *Process) bool {
+
+	m.BackingStore[p.ID] = p
+
 	if m.Allocation == Flat {
 		if m.UsedMemoryKB+p.MemoryRequired > m.TotalMemoryKB {
 			m.SwapOutOldest()
@@ -69,13 +72,37 @@ func (m *MemoryManager) Allocate(p *Process) bool {
 }
 
 func (m *MemoryManager) SwapOutOldest() {
-	for pid, p := range m.BackingStore {
+
+	var (
+		oldestProcess *Process
+	)
+
+	for _, p := range m.BackingStore {
 		if p.InMemory {
-			m.UsedMemoryKB -= p.MemoryRequired
-			p.InMemory = false
-			m.PagedOutCount += p.Pages
-			delete(m.BackingStore, pid)
+			oldestProcess = p
 			break
+		}
+	}
+
+	if oldestProcess != nil {
+		m.UsedMemoryKB -= oldestProcess.MemoryRequired
+		oldestProcess.InMemory = false
+
+		if m.Allocation == Paging {
+			// 释放页框
+			count := 0
+			for i := range m.Frames {
+				if m.Frames[i] {
+					m.Frames[i] = false
+					count++
+					if count == oldestProcess.Pages {
+						break
+					}
+				}
+			}
+			m.PagedOutCount += oldestProcess.Pages
+		} else {
+			m.PagedOutCount++
 		}
 	}
 }

@@ -1,5 +1,7 @@
 package main
 
+import "time"
+
 type CPU struct {
 	ID          int
 	Running     *Process
@@ -65,4 +67,23 @@ func (s *Scheduler) Tick() {
 
 func (s *Scheduler) AddProcess(p *Process) {
 	s.ReadyQueue = append(s.ReadyQueue, p)
+}
+
+// 添加以下方法
+func (s *Scheduler) Start() {
+	ticker := time.NewTicker(time.Duration(2) * time.Second) // 每2秒一个tick
+	for range ticker.C {
+		s.Tick()
+	}
+}
+
+func (s *Scheduler) Stop() {
+	// 清理所有CPU上运行的进程
+	for _, cpu := range s.CPUs {
+		if cpu.Running != nil {
+			cpu.Running = nil
+		}
+	}
+	// 清空就绪队列
+	s.ReadyQueue = nil
 }

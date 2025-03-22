@@ -15,6 +15,7 @@ type Shell struct {
 	Processes        map[string]*Process
 	Initialized      bool
 	schedulerStopped bool
+	scheduler        *Scheduler // 添加这行
 }
 
 func NewShell() *Shell {
@@ -161,24 +162,34 @@ func (s *Shell) ResumeScreen(name string) {
 // === scheduler-test ===
 func (s *Shell) StartSchedulerTest() {
 	fmt.Println("Starting scheduler test...")
+	s.scheduler = NewScheduler(s.cfg)
+
 	go func() {
 		ticker := time.NewTicker(time.Duration(s.cfg.BatchFreq) * time.Second)
 		for range ticker.C {
 			name := fmt.Sprintf("p%03d", processIDCounter)
 			p := NewProcess(name, s.cfg)
+
 			if !s.MemMgr.Allocate(p) {
 				fmt.Println("Memory full. Skipping:", name)
 				continue
 			}
+
 			s.Processes[name] = p
+			s.scheduler.AddProcess(p) // 添加到调度器
 			fmt.Printf("[Auto] Created process %s\n", name)
 			processIDCounter++
+
 			if s.schedulerStopped {
 				ticker.Stop()
+				s.scheduler.Stop() // 停止调度器
 				return
 			}
 		}
 	}()
+
+	// 启动调度器
+	go s.scheduler.Start()
 }
 
 func (s *Shell) StopSchedulerTest() {
