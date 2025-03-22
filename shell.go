@@ -23,6 +23,18 @@ func NewShell() *Shell {
 	}
 }
 
+// 添加 printHeader 函数
+func (s *Shell) PrintHeader() {
+	fmt.Print(`
+   ___________ ____  ____  _____________  __
+  / ____/ ___// __ \/ __ \/ ____/ ___/\ \/ /
+ / /    \__ \/ / / / /_/ / __/  \__ \  \  /
+/ /___ ___/ / /_/ / ____/ /___ ___/ /  / /
+\____//____/\____/_/   /_____//____/  /_/
+`)
+	fmt.Println("\nWelcome!type help")
+}
+
 // === Main Command Loop ===
 func (s *Shell) Run() {
 	reader := bufio.NewReader(os.Stdin)
@@ -45,6 +57,18 @@ func (s *Shell) handleCommand(input string) {
 		return
 	}
 	switch args[0] {
+	case "help":
+		fmt.Println("Available Commands:")
+		fmt.Println("  initialize          - Initialize the system")
+		fmt.Println("  screen -s <name>    - Create a new process")
+		fmt.Println("  screen -ls          - List all processes")
+		fmt.Println("  screen -r <name>    - Enter process shell")
+		fmt.Println("  scheduler-test      - Start scheduler test")
+		fmt.Println("  scheduler-stop      - Stop scheduler test")
+		fmt.Println("  report-util         - Generate system report")
+		fmt.Println("  process-smi         - Show process status")
+		fmt.Println("  vmstat              - Display memory statistics")
+		fmt.Println("  exit                - Exit emulator")
 	case "initialize":
 		cfg, err := LoadConfig("config.txt")
 		if err != nil {
@@ -162,13 +186,6 @@ func (s *Shell) StopSchedulerTest() {
 	fmt.Println("Stopped scheduler test.")
 }
 
-// === report-util ===
-
-// === (existing code preserved, omitted here for brevity) ===
-
-// === SCHEDULER TEST ===
-
-// === VMSTAT ===
 func (s *Shell) PrintVMStat() {
 	fmt.Println("=== vmstat ===")
 	fmt.Printf("Total Memory: %d KB\n", s.MemMgr.TotalMemoryKB)

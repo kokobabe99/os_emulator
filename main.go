@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"math/rand"
 	"time"
 )
@@ -21,7 +20,8 @@ RR 时间片为 3（FCFS 下忽略）
 */
 func main() {
 	rand.Seed(time.Now().UnixNano())
-	fmt.Println("Welcome to CSOPESY OS Emulator")
+
 	shell := NewShell()
+	shell.PrintHeader()
 	shell.Run()
 }
