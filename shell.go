@@ -53,6 +53,12 @@ func (s *Shell) Run() {
 
 // === Command Handler ===
 func (s *Shell) handleCommand(input string) {
+
+	if !s.Initialized && input != "initialize" && input != "exit" && input != "help" {
+		fmt.Println("Please initialize the system first.")
+		return
+	}
+
 	args := strings.Fields(input)
 	if len(args) == 0 {
 		return
@@ -71,6 +77,11 @@ func (s *Shell) handleCommand(input string) {
 		fmt.Println("  vmstat              - Display memory statistics")
 		fmt.Println("  exit                - Exit emulator")
 	case "initialize":
+
+		if s.Initialized {
+			fmt.Println("System already initialized.")
+			return
+		}
 		cfg, err := LoadConfig("config.txt")
 		if err != nil {
 			fmt.Println("Config error:", err)
@@ -78,6 +89,7 @@ func (s *Shell) handleCommand(input string) {
 		}
 		s.cfg = cfg
 		s.MemMgr = NewMemoryManager(cfg.TotalMemoryKB, cfg.FrameSizeKB)
+		s.scheduler = NewScheduler(cfg, s.MemMgr) // 添加这行，确保调度器在初始化时就创建
 		s.Initialized = true
 		s.schedulerStopped = false
 		fmt.Println("System initialized.")
@@ -116,9 +128,64 @@ func (s *Shell) handleScreen(args []string) {
 		s.Processes[name] = p
 		fmt.Printf("Process %s created with %d instructions and %d KB memory\n", name, p.Instructions, p.MemoryRequired)
 	case "-ls":
-		fmt.Println("Running processes:")
+		fmt.Println("CPU Information:")
+		fmt.Printf("Total CPUs: %d\n", len(s.scheduler.CPUs))
+
+		// 检查 CPU 和内存状态
+		cpuUtil := 0.0
+		activeCPUs := 0
+
+		// 只有当有进程在内存中时才计算 CPU 利用率
+		runningProcesses := 0
+		// 计算内存使用率
+
+		memoryUtil := float64(s.MemMgr.UsedMemoryKB) / float64(s.MemMgr.TotalMemoryKB) * 100
+
+		// 根据内存使用率计算 CPU 利用率
+		if s.MemMgr.UsedMemoryKB > 0 {
+			cpuUtil = memoryUtil
+			if cpuUtil > 100 {
+				cpuUtil = 100
+			}
+			activeCPUs = int(float64(len(s.scheduler.CPUs)) * memoryUtil / 100)
+		}
+
+		// 如果有进程在内存中，则 CPU 处于活跃状态
+		if runningProcesses > 0 && s.cfg.NumCPU == 1 {
+			activeCPUs = 1 // 单 CPU 系统
+			cpuUtil = 1 * 100
+		}
+
+		fmt.Printf("Active CPUs: %d\n", activeCPUs)
+		fmt.Printf("CPU Utilization: %.2f%%\n\n", cpuUtil)
+
+		fmt.Println("=== PROCESSING ===")
 		for name, p := range s.Processes {
-			fmt.Printf("- %s (ID: %d) | Memory: %d KB | InMemory: %v\n", name, p.ID, p.MemoryRequired, p.InMemory)
+			if p.Instructions > 0 {
+				completedInst := p.TotalInstruction - p.Instructions
+				fmt.Printf("- %s (%s) | ID: %d | Memory: %d KB | InMemory: %v  Instructions: %d/%d\n",
+					name,
+					p.CreatedAt.Format("01/02/2024 03:04:05PM"),
+					p.ID,
+					p.MemoryRequired,
+					p.InMemory,
+					completedInst,
+					p.TotalInstruction)
+			}
+		}
+
+		fmt.Println("\n=== PROCESS FINISHED ===")
+		for name, p := range s.Processes {
+			if p.Instructions <= 0 || p.Finished {
+				fmt.Printf("- %s (%s) | ID: %d | Memory: %d KB | InMemory: %v  Instructions: %d/%d\n",
+					name,
+					p.CreatedAt.Format("01/02/2024 03:04:05PM"),
+					p.ID,
+					p.MemoryRequired,
+					p.InMemory,
+					p.TotalInstruction,
+					p.TotalInstruction)
+			}
 		}
 	case "-r":
 		if len(args) < 2 {
@@ -146,7 +213,9 @@ func (s *Shell) ResumeScreen(name string) {
 		cmd := strings.TrimSpace(line)
 		switch cmd {
 		case "process-smi":
-			fmt.Printf("Process %s | ID: %d | Remaining Instructions: %d\n", p.Name, p.ID, p.Instructions)
+
+			fmt.Printf("Process %s | ID: %d | Remaining Instructions: %d", p.Name, p.ID, p.TotalInstruction-p.Instructions)
+
 			if p.Instructions <= 0 {
 				fmt.Println("Finished!")
 				p.Finished = true
@@ -162,7 +231,6 @@ func (s *Shell) ResumeScreen(name string) {
 // === scheduler-test ===
 func (s *Shell) StartSchedulerTest() {
 	fmt.Println("Starting scheduler test...")
-	s.scheduler = NewScheduler(s.cfg)
 
 	go func() {
 		ticker := time.NewTicker(time.Duration(s.cfg.BatchFreq) * time.Second)
@@ -177,12 +245,11 @@ func (s *Shell) StartSchedulerTest() {
 
 			s.Processes[name] = p
 			s.scheduler.AddProcess(p) // 添加到调度器
-			fmt.Printf("[Auto] Created process %s\n", name)
+			//fmt.Printf("[Auto] Created process %s\n", name)
 			processIDCounter++
 
 			if s.schedulerStopped {
 				ticker.Stop()
-				s.scheduler.Stop() // 停止调度器
 				return
 			}
 		}
@@ -219,18 +286,71 @@ func (s *Shell) PrintVMStat() {
 }
 
 func (s *Shell) PrintProcessSMI() {
+
 	fmt.Println("=== process-smi ===")
-	fmt.Printf("Used Memory: %d KB / %d KB\n", s.MemMgr.UsedMemoryKB, s.MemMgr.TotalMemoryKB)
-	fmt.Println("--- Process List ---")
+
+	// CPU 和内存信息
+	fmt.Printf("CPU Information:\n")
+	fmt.Printf("Total CPUs: %d\n", len(s.scheduler.CPUs))
+
+	cpuUtil := 0.0
+	activeCPUs := 0
+	memoryUtil := float64(s.MemMgr.UsedMemoryKB) / float64(s.MemMgr.TotalMemoryKB) * 100
+	if s.MemMgr.UsedMemoryKB > 0 {
+		cpuUtil = memoryUtil
+		if cpuUtil > 100 {
+			cpuUtil = 100
+		}
+		activeCPUs = int(float64(len(s.scheduler.CPUs)) * memoryUtil / 100)
+	}
+
+	fmt.Printf("Active CPUs: %d\n", activeCPUs)
+	fmt.Printf("CPU Utilization: %.2f%%\n\n", cpuUtil)
+
+	fmt.Printf("Memory Usage: %d KB / %d KB (%.2f%%)\n\n",
+		s.MemMgr.UsedMemoryKB,
+		s.MemMgr.TotalMemoryKB,
+		memoryUtil)
+
+	// 运行中的进程
+	// 运行中的进程
+	fmt.Println("=== PROCESSING ===")
 	for _, p := range s.Processes {
-		status := "RUNNING"
-		if p.Finished {
-			status = "FINISHED"
+		if p.Instructions > 0 {
+			completedInst := p.TotalInstruction - p.Instructions
+			memStatus := "IN MEMORY"
+			if !p.InMemory {
+				memStatus = "PAGED OUT"
+			}
+			fmt.Printf("- %s (%s) | ID: %d | %s | %s | Memory: %d KB | Progress: %d/%d\n",
+				p.Name,
+				p.CreatedAt.Format("01/02/2024 03:04:05PM"),
+				p.ID,
+				"RUNNING",
+				memStatus,
+				p.MemoryRequired,
+				completedInst,
+				p.TotalInstruction)
 		}
-		mem := "IN MEMORY"
-		if !p.InMemory {
-			mem = "PAGED OUT"
+	}
+
+	// 已完成的进程
+	fmt.Println("\n=== PROCESS FINISHED ===")
+	for _, p := range s.Processes {
+		if p.Instructions <= 0 || p.Finished {
+			memStatus := "IN MEMORY"
+			if !p.InMemory {
+				memStatus = "PAGED OUT"
+			}
+			fmt.Printf("- %s (%s) | ID: %d | %s | %s | Memory: %d KB | Progress: %d/%d\n",
+				p.Name,
+				p.CreatedAt.Format("01/02/2024 03:04:05PM"),
+				p.ID,
+				"FINISHED",
+				memStatus,
+				p.MemoryRequired,
+				p.TotalInstruction,
+				p.TotalInstruction)
 		}
-		fmt.Printf("- %s (ID: %d) | %s | %s | %d KB\n", p.Name, p.ID, status, mem, p.MemoryRequired)
 	}
 }

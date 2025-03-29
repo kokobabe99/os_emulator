@@ -34,6 +34,15 @@ func NewMemoryManager(total, frame int) *MemoryManager {
 
 func (m *MemoryManager) Allocate(p *Process) bool {
 
+	if p == nil {
+		return false
+	}
+
+	// 检查内存需求是否超过总内存
+	if p.MemoryRequired > m.TotalMemoryKB {
+		return false
+	}
+
 	m.BackingStore[p.ID] = p
 
 	if m.Allocation == Flat {
@@ -104,5 +113,17 @@ func (m *MemoryManager) SwapOutOldest() {
 		} else {
 			m.PagedOutCount++
 		}
+	}
+}
+
+func (m *MemoryManager) Deallocate(p *Process) {
+	if p == nil {
+		return
+	}
+
+	p.InMemory = false
+	m.UsedMemoryKB -= p.MemoryRequired
+	if m.UsedMemoryKB < 0 {
+		m.UsedMemoryKB = 0
 	}
 }
